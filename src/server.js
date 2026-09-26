@@ -7,11 +7,13 @@ import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { ensureDbServer, stopDbServer } from "./config/db-server.js";
 
-// Ensure persistent PGlite PostgreSQL server is up and running
-try {
-  await ensureDbServer();
-} catch (err) {
-  logger.warn({ err: err.message }, "Notice on embedded database startup");
+// Ensure persistent PGlite PostgreSQL server is up and running in dev if configured
+if (env.NODE_ENV !== "production" && (env.DATABASE_URL.includes(":54321") || env.DATABASE_URL.includes("pglite"))) {
+  try {
+    await ensureDbServer();
+  } catch (err) {
+    logger.warn({ err: err.message }, "Notice on embedded database startup");
+  }
 }
 
 let redis = null;

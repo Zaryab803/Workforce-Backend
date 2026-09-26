@@ -1,5 +1,3 @@
-import { PGlite } from "@electric-sql/pglite";
-import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import { readFileSync, existsSync, readdirSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import net from "node:net";
@@ -26,6 +24,26 @@ function isPortInUse(port, host = "127.0.0.1") {
 }
 
 export async function ensureDbServer() {
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
+
+  const dbUrl = process.env.DATABASE_URL || "";
+  if (!dbUrl.includes(":54321") && !dbUrl.includes("pglite")) {
+    return;
+  }
+
+  let PGlite;
+  let PGLiteSocketServer;
+  try {
+    const pgliteModule = await import("@electric-sql/pglite");
+    const socketModule = await import("@electric-sql/pglite-socket");
+    PGlite = pgliteModule.PGlite;
+    PGLiteSocketServer = socketModule.PGLiteSocketServer;
+  } catch {
+    return;
+  }
+
   const port = 54321;
   const inUse = await isPortInUse(port);
   if (inUse) {
