@@ -4,3 +4,8 @@ node_modules
 coverage
 .tmp
 .git
+data
+tests
+docs
+examples
+*.log
