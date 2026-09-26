@@ -1,7 +1,7 @@
 import "dotenv/config";
 import bcrypt from "bcrypt";
 import { PrismaClient } from "@prisma/client";
-import { ensureDbServer, stopDbServer } from "../src/config/db-server.js";
+import { ensureDbServer } from "../src/config/db-server.js";
 
 const db = new PrismaClient();
 

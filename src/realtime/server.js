@@ -1,7 +1,6 @@
 import { Server } from "socket.io";
 import { z } from "zod";
 import { EventEmitter } from "node:events";
-import { allowedOrigins } from "../config/env.js";
 import { authenticateToken } from "../middleware/authenticate.js";
 import { authorizeTask } from "../middleware/authorize.js";
 import { commentCreate } from "../modules/comments/comment.schema.js";

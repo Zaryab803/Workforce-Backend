@@ -7,6 +7,7 @@
     "start": "node src/server.js",
     "worker": "node src/workers/index.js",
     "worker:dev": "node --watch src/workers/index.js",
+    "redis": "node scripts/run-redis.js",
     "jobs:overdue": "node scripts/run-overdue.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",

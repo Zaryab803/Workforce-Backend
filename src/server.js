@@ -6,6 +6,7 @@ import { createRedis } from "./config/redis.js";
 import { env } from "./config/env.js";
 import { logger } from "./config/logger.js";
 import { ensureDbServer, stopDbServer } from "./config/db-server.js";
+import { ensureRedisServer, stopRedisServer } from "./config/redis-server.js";
 
 // Ensure persistent PGlite PostgreSQL server is up and running in dev if configured
 if (env.NODE_ENV !== "production" && (env.DATABASE_URL.includes(":54321") || env.DATABASE_URL.includes("pglite"))) {
@@ -13,6 +14,15 @@ if (env.NODE_ENV !== "production" && (env.DATABASE_URL.includes(":54321") || env
     await ensureDbServer();
   } catch (err) {
     logger.warn({ err: err.message }, "Notice on embedded database startup");
+  }
+}
+
+// Ensure local development Redis server is up and running in dev if configured
+if (env.NODE_ENV !== "production" && (env.REDIS_URL.includes("localhost:6379") || env.REDIS_URL.includes("127.0.0.1:6379"))) {
+  try {
+    await ensureRedisServer();
+  } catch (err) {
+    logger.warn({ err: err.message }, "Notice on embedded Redis startup");
   }
 }
 
@@ -64,6 +74,7 @@ async function shutdown(signal) {
   if (redis) await redis.quit();
   await prisma.$disconnect();
   await stopDbServer();
+  await stopRedisServer();
   clearTimeout(timeout);
 }
 process.on("SIGINT", () => void shutdown("SIGINT"));

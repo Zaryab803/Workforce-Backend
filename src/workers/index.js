@@ -2,6 +2,12 @@ import { startWorkers } from "./start-workers.js";
 import { prisma } from "../config/prisma.js";
 import { createRedis } from "../config/redis.js";
 import { logger } from "../config/logger.js";
+import { ensureDbServer, stopDbServer } from "../config/db-server.js";
+import { ensureRedisServer, stopRedisServer } from "../config/redis-server.js";
+
+await ensureDbServer();
+await ensureRedisServer();
+
 const connection = createRedis(true);
 await connection.connect();
 await prisma.$connect();
@@ -15,8 +21,11 @@ async function shutdown(signal) {
   await runtime.close();
   await connection.quit();
   await prisma.$disconnect();
+  await stopRedisServer();
+  await stopDbServer();
   clearTimeout(timeout);
 }
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 logger.info("Background workers ready");
+
