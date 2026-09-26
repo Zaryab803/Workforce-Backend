@@ -1,0 +1,65 @@
+@base = http://localhost:4000/api/v1
+@token = PASTE_ACCESS_TOKEN
+@taskId = PASTE_TASK_UUID
+@projectId = PASTE_PROJECT_UUID
+@assigneeId = PASTE_USER_UUID
+
+### Login: use the SEED_PASSWORD you configured
+POST {{base}}/auth/login
+Content-Type: application/json
+X-CSRF-Protection: 1
+
+{"email":"manager@orbit.demo","password":"YOUR_SEED_PASSWORD","remember":true}
+
+### Current user
+GET {{base}}/auth/me
+Authorization: Bearer {{token}}
+
+### Refresh: your client must retain the Set-Cookie response from login
+POST {{base}}/auth/refresh
+X-CSRF-Protection: 1
+
+### Available projects
+GET {{base}}/projects?page=1&limit=20
+Authorization: Bearer {{token}}
+
+### Available users
+GET {{base}}/users?page=1&limit=20
+Authorization: Bearer {{token}}
+
+### Create a task
+POST {{base}}/tasks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"title":"Review dashboard draft","description":"Write review notes","projectId":"{{projectId}}","assigneeId":"{{assigneeId}}","priority":"HIGH","dueDate":"2026-10-15","estimatedHours":4}
+
+### List tasks
+GET {{base}}/tasks?page=1&limit=20&sortBy=dueDate&sortOrder=asc
+Authorization: Bearer {{token}}
+
+### Start task: use its CURRENT version, not always 1
+PATCH {{base}}/tasks/{{taskId}}/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"status":"IN_PROGRESS","version":1}
+
+### Add a comment
+POST {{base}}/tasks/{{taskId}}/comments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"comment":"The first draft is ready."}
+
+### Dashboard
+GET {{base}}/dashboard
+Authorization: Bearer {{token}}
+
+### My notifications
+GET {{base}}/notifications
+Authorization: Bearer {{token}}
+
+### Logout with retained refresh cookie
+POST {{base}}/auth/logout
+X-CSRF-Protection: 1

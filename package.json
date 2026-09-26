@@ -1,0 +1,73 @@
+{
+  "name": "orbit-workforce-backend",
+  "version": "1.1.0",
+  "description": "Express workforce REST API with Prisma, JWT sessions, BullMQ and RBAC",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "worker": "node src/workers/index.js",
+    "worker:dev": "node --watch src/workers/index.js",
+    "jobs:overdue": "node scripts/run-overdue.js",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate deploy",
+    "db:dev": "prisma migrate dev",
+    "db:seed": "node prisma/seed.js",
+    "db:studio": "prisma studio",
+    "lint": "eslint .",
+    "check": "node scripts/check.js",
+    "format": "prettier --write .",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand",
+    "test:unit": "npm test -- --selectProjects unit",
+    "test:integration": "npm test -- --selectProjects integration",
+    "test:embedded": "node scripts/test-embedded.mjs",
+    "docs:check": "node scripts/check-openapi.js",
+    "outbox:status": "node scripts/outbox.js",
+    "outbox:retry": "node scripts/outbox.js retry"
+  },
+  "keywords": [],
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@prisma/client": "^6.19.0",
+    "bcrypt": "^6.0.0",
+    "bullmq": "^5.81.5",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.3",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "ioredis": "^5.11.1",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^10.0.10",
+    "pino": "^9.14.0",
+    "pino-http": "^10.5.0",
+    "rate-limit-redis": "^4.3.1",
+    "socket.io": "^4.8.4",
+    "swagger-ui-express": "^5.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.12.0",
+    "jest": "^30.5.2",
+    "prettier": "^3.9.9",
+    "prisma": "^6.19.0",
+    "redis-memory-server": "^0.17.1",
+    "smtp-server": "^3.19.13",
+    "socket.io-client": "^4.8.4",
+    "supertest": "^7.3.0"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "redisMemoryServer": {
+    "disablePostinstall": true,
+    "version": "8.10.2"
+  }
+}

@@ -1,0 +1,61 @@
+# LOCAL development infrastructure only. No deployment is performed.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orbit
+      POSTGRES_PASSWORD: orbit_local_password
+      POSTGRES_DB: orbit
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: ["orbit-postgres:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbit -d orbit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
+    ports: ["127.0.0.1:6379:6379"]
+    volumes: ["orbit-redis:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    profiles: ["app"]
+    build: .
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://orbit:orbit_local_password@postgres:5432/orbit?schema=workforce
+      DIRECT_URL: postgresql://orbit:orbit_local_password@postgres:5432/orbit?schema=workforce
+      REDIS_URL: redis://redis:6379
+    ports: ["127.0.0.1:4000:4000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+  worker:
+    profiles: ["app"]
+    build: .
+    command: ["node", "src/workers/index.js"]
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://orbit:orbit_local_password@postgres:5432/orbit?schema=workforce
+      DIRECT_URL: postgresql://orbit:orbit_local_password@postgres:5432/orbit?schema=workforce
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+volumes:
+  orbit-postgres:
+  orbit-redis:

@@ -1,0 +1,293 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum RoleName {
+  ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  INACTIVE
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  IN_REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Role {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      RoleName @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  users     User[]
+
+  @@map("roles")
+}
+
+model User {
+  id               String              @id @default(uuid()) @db.Uuid
+  employeeCode     String              @unique @map("employee_code")
+  name             String
+  email            String              @unique
+  passwordHash     String              @map("password_hash")
+  phone            String?
+  roleId           String              @map("role_id") @db.Uuid
+  role             Role                @relation(fields: [roleId], references: [id])
+  managerId        String?             @map("manager_id") @db.Uuid
+  manager          User?               @relation("Reporting", fields: [managerId], references: [id])
+  reports          User[]              @relation("Reporting")
+  joiningDate      DateTime            @map("joining_date") @db.Date
+  employmentStatus EmploymentStatus    @default(ACTIVE) @map("employment_status")
+  avatarUrl        String?             @map("avatar_url")
+  isActive         Boolean             @default(true) @map("is_active")
+  tokenVersion     Int                 @default(1) @map("token_version")
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  deletedAt        DateTime?           @map("deleted_at")
+  memberships      TeamMember[]
+  managedTeams     Team[]
+  createdProjects  Project[]
+  assignedTasks    Task[]              @relation("Assignee")
+  createdTasks     Task[]              @relation("Creator")
+  comments         TaskComment[]
+  history          TaskStatusHistory[]
+  activities       WorkActivity[]
+  audits           AuditLog[]
+  sessions         RefreshSession[]
+  notifications    Notification[]
+
+  @@index([roleId])
+  @@index([managerId])
+  @@index([isActive, deletedAt])
+  @@map("users")
+}
+
+model Team {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String       @unique
+  description String       @default("")
+  managerId   String       @map("manager_id") @db.Uuid
+  manager     User         @relation(fields: [managerId], references: [id])
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  members     TeamMember[]
+  projects    Project[]
+  tasks       Task[]
+
+  @@index([managerId])
+  @@map("teams")
+}
+
+model TeamMember {
+  id       String   @id @default(uuid()) @db.Uuid
+  teamId   String   @map("team_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  joinedAt DateTime @default(now()) @map("joined_at")
+  team     Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  name        String
+  description String        @default("")
+  status      ProjectStatus @default(ACTIVE)
+  teamId      String        @map("team_id") @db.Uuid
+  team        Team          @relation(fields: [teamId], references: [id])
+  createdBy   String        @map("created_by") @db.Uuid
+  creator     User          @relation(fields: [createdBy], references: [id])
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  tasks       Task[]
+
+  @@unique([teamId, name])
+  @@index([status])
+  @@map("projects")
+}
+
+model Task {
+  id             String              @id @default(uuid()) @db.Uuid
+  title          String
+  description    String              @default("")
+  teamId         String              @map("team_id") @db.Uuid
+  team           Team                @relation(fields: [teamId], references: [id])
+  projectId      String              @map("project_id") @db.Uuid
+  project        Project             @relation(fields: [projectId], references: [id])
+  assigneeId     String              @map("assignee_id") @db.Uuid
+  assignee       User                @relation("Assignee", fields: [assigneeId], references: [id])
+  createdBy      String              @map("created_by") @db.Uuid
+  creator        User                @relation("Creator", fields: [createdBy], references: [id])
+  priority       Priority            @default(MEDIUM)
+  status         TaskStatus          @default(TODO)
+  dueDate        DateTime            @map("due_date") @db.Date
+  estimatedHours Decimal             @map("estimated_hours") @db.Decimal(8, 2)
+  actualHours    Decimal             @default(0) @map("actual_hours") @db.Decimal(10, 2)
+  version        Int                 @default(1)
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  deletedAt      DateTime?           @map("deleted_at")
+  comments       TaskComment[]
+  history        TaskStatusHistory[]
+  activities     WorkActivity[]
+
+  @@index([assigneeId, status, deletedAt])
+  @@index([teamId, status, deletedAt])
+  @@index([status, dueDate])
+  @@index([priority])
+  @@index([dueDate, id])
+  @@index([projectId])
+  @@index([createdBy])
+  @@map("tasks")
+}
+
+model TaskComment {
+  clientRequestId String? @map("client_request_id") @db.Uuid
+  id        String   @id @default(uuid()) @db.Uuid
+  taskId    String   @map("task_id") @db.Uuid
+  authorId  String   @map("author_id") @db.Uuid
+  comment   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  task      Task     @relation(fields: [taskId], references: [id])
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@unique([authorId, clientRequestId])
+  @@map("task_comments")
+}
+
+model TaskStatusHistory {
+  id         String      @id @default(uuid()) @db.Uuid
+  taskId     String      @map("task_id") @db.Uuid
+  fromStatus TaskStatus? @map("from_status")
+  toStatus   TaskStatus  @map("to_status")
+  changedBy  String      @map("changed_by") @db.Uuid
+  createdAt  DateTime    @default(now()) @map("created_at")
+  task       Task        @relation(fields: [taskId], references: [id])
+  actor      User        @relation(fields: [changedBy], references: [id])
+
+  @@index([taskId, createdAt])
+  @@map("task_status_history")
+}
+
+model WorkActivity {
+  id           String   @id @default(uuid()) @db.Uuid
+  taskId       String   @map("task_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  description  String
+  hours        Decimal  @db.Decimal(6, 2)
+  activityDate DateTime @map("activity_date") @db.Date
+  createdAt    DateTime @default(now()) @map("created_at")
+  task         Task     @relation(fields: [taskId], references: [id])
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@index([taskId, createdAt])
+  @@index([userId, activityDate])
+  @@map("work_activities")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  actorId   String   @map("actor_id") @db.Uuid
+  action    String
+  entity    String
+  entityId  String   @map("entity_id")
+  metadata  Json     @default("{}")
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+  actor     User     @relation(fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([entity, entityId])
+  @@index([createdAt, id])
+  @@map("audit_logs")
+}
+
+model RefreshSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  familyId   String    @map("family_id") @db.Uuid
+  persistent Boolean   @default(true)
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  ipAddress  String?   @map("ip_address")
+  userAgent  String?   @map("user_agent")
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, revokedAt])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_sessions")
+}
+
+model Notification {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  type       String
+  title      String
+  message    String
+  entityType String    @map("entity_type")
+  entityId   String    @map("entity_id")
+  dedupeKey  String?   @unique @map("dedupe_key")
+  isRead     Boolean   @default(false) @map("is_read")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  readAt     DateTime? @map("read_at")
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+// Durable delivery work, inserted in the same transaction as business data.
+model OutboxEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  key         String    @unique
+  kind        String
+  payload     Json
+  attempts    Int       @default(0)
+  availableAt DateTime  @default(now()) @map("available_at")
+  lockedUntil DateTime? @map("locked_until")
+  lockToken   String?   @map("lock_token") @db.Uuid
+  processedAt DateTime? @map("processed_at")
+  failedAt    DateTime? @map("failed_at")
+  lastError   String?   @map("last_error")
+  result      String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([processedAt, failedAt, availableAt])
+  @@map("outbox_events")
+}
