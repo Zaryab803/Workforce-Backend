@@ -90,8 +90,13 @@ if (
 if (env.COOKIE_SAME_SITE === "none" && !env.COOKIE_SECURE)
   throw new Error("SameSite=None requires COOKIE_SECURE=true.");
 export const allowedOrigins = env.CORS_ORIGINS.split(",")
-  .map((v) => v.trim())
+  .map((v) => v.trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/, ""))
   .filter(Boolean);
+if (env.NODE_ENV !== "production") {
+  if (allowedOrigins.includes("http://localhost:3000") && !allowedOrigins.includes("http://127.0.0.1:3000")) {
+    allowedOrigins.push("http://127.0.0.1:3000");
+  }
+}
 if (
   allowedOrigins.some((v) => {
     try {

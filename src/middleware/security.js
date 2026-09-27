@@ -3,6 +3,7 @@ import { RedisStore } from "rate-limit-redis";
 import { allowedOrigins, env } from "../config/env.js";
 import { assert } from "../utils/errors.js";
 export function cookieRequestGuard(req, _res, next) {
+  if (req.method === "OPTIONS") return next();
   const origin = req.get("origin");
   assert(
     !origin || allowedOrigins.includes(origin),

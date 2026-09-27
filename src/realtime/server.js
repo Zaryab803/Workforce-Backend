@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { z } from "zod";
 import { EventEmitter } from "node:events";
+import { allowedOrigins } from "../config/env.js";
 import { authenticateToken } from "../middleware/authenticate.js";
 import { authorizeTask } from "../middleware/authorize.js";
 import { commentCreate } from "../modules/comments/comment.schema.js";
@@ -42,8 +43,21 @@ export async function attachRealtime(httpServer, { db, redis = null }) {
   const io = new Server(httpServer, {
     transports: ["websocket", "polling"],
     maxHttpBufferSize: 16000,
-    cors: { origin: (origin, cb) => cb(null, true), credentials: true },
-    allowRequest: (req, callback) => callback(null, true),
+    cors: {
+      origin: (origin, cb) =>
+        !origin || allowedOrigins.includes(origin)
+          ? cb(null, true)
+          : cb(new Error("ORIGIN_NOT_ALLOWED")),
+      credentials: true,
+    },
+    allowRequest: (req, callback) => {
+      const origin = req.headers.origin;
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("ORIGIN_NOT_ALLOWED"), false);
+      }
+    },
   });
 
   const memoryLimits = new Map();
@@ -90,12 +104,12 @@ export async function attachRealtime(httpServer, { db, redis = null }) {
 
     const handle = (name, schema, operation) =>
       socket.on(name, async (payload, ack) => {
-        if (typeof ack !== "function") return;
+        const respond = typeof ack === "function" ? ack : () => {};
         try {
           const key = `orbit:socket-rate:${socket.data.user.id}:${Math.floor(Date.now() / 60000)}`;
           const count = await checkRateLimit(key);
           if (count > 120)
-            return ack({
+            return respond({
               ok: false,
               error: {
                 code: "RATE_LIMITED",
@@ -104,9 +118,9 @@ export async function attachRealtime(httpServer, { db, redis = null }) {
             });
           const input = schema.parse(payload);
           const user = await currentSocketUser(db, socket);
-          ack({ ok: true, data: await operation(user, input) });
+          respond({ ok: true, data: await operation(user, input) });
         } catch (error) {
-          ack(safeError(error));
+          respond(safeError(error));
         }
       });
 
@@ -162,6 +176,9 @@ export async function attachRealtime(httpServer, { db, redis = null }) {
         }
 
         if (event.kind === "COMMENT_LIVE") {
+          if (!socket.data?.tasks?.has(event.taskId)) {
+            continue;
+          }
           socket.emit("comment:created", {
             taskId: event.taskId,
             commentId: event.commentId,
@@ -174,6 +191,9 @@ export async function attachRealtime(httpServer, { db, redis = null }) {
             eventId: event.eventId,
           });
         } else if (event.kind === "TASK_CHANGED") {
+          if (!socket.data?.tasks?.has(event.taskId)) {
+            continue;
+          }
           socket.emit("task:changed", {
             taskId: event.taskId,
             action: event.action,

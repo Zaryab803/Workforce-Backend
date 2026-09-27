@@ -71,19 +71,21 @@ export function teamService(db) {
 
     create: (user, data, ctx) =>
       transaction(db, async (tx) => {
-        await checkManager(tx, data.managerId);
-        const team = await tx.team.create({ data, include: teamInclude });
+        const { color: _color, ...teamData } = data;
+        await checkManager(tx, teamData.managerId);
+        const team = await tx.team.create({ data: teamData, include: teamInclude });
         await appendAudit(
           tx,
           user,
           "TEAM_CREATED",
           "Team",
           team.id,
-          { managerId: data.managerId },
+          { managerId: teamData.managerId },
           ctx,
         );
         return {
           ...team,
+          color: _color || "#6366f1",
           members: team._count?.members ?? 0,
           activeTasks: team._count?.tasks ?? 0,
         };
@@ -91,10 +93,11 @@ export function teamService(db) {
 
     update: (user, id, data, ctx) =>
       transaction(db, async (tx) => {
-        if (data.managerId) await checkManager(tx, data.managerId);
+        const { color: _color, ...teamData } = data;
+        if (teamData.managerId) await checkManager(tx, teamData.managerId);
         const team = await tx.team.update({
           where: { id },
-          data,
+          data: teamData,
           include: teamInclude,
         });
         await appendAudit(
@@ -108,6 +111,7 @@ export function teamService(db) {
         );
         return {
           ...team,
+          color: _color || "#6366f1",
           members: team._count?.members ?? 0,
           activeTasks: team._count?.tasks ?? 0,
         };

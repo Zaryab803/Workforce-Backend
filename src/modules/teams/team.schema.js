@@ -5,6 +5,7 @@ export const teamCreate = z
     name: z.string().trim().min(2).max(100),
     description: z.string().max(1000).default(""),
     managerId: uuid,
+    color: z.string().optional(),
   })
   .strict();
 export const teamUpdate = nonempty(teamCreate.partial());

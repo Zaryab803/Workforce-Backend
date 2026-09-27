@@ -3,10 +3,10 @@
   "version": "1.1.0",
   "description": "Express workforce REST API with Prisma, JWT sessions, BullMQ and RBAC",
   "scripts": {
-    "dev": "node --watch src/server.js",
+    "dev": "node --watch --watch-path=.env src/server.js",
     "start": "node src/server.js",
     "worker": "node src/workers/index.js",
-    "worker:dev": "node --watch src/workers/index.js",
+    "worker:dev": "node --watch --watch-path=.env src/workers/index.js",
     "redis": "node scripts/run-redis.js",
     "jobs:overdue": "node scripts/run-overdue.js",
     "db:generate": "prisma generate",

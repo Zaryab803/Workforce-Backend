@@ -15,7 +15,7 @@ export const taskCreate = z
   .strict();
 export const taskUpdate = taskCreate
   .partial()
-  .extend({ version: version.optional() })
+  .extend({ version })
   .strict()
   .refine(
     (v) => Object.keys(v).length >= 1,

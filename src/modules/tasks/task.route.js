@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authorizeRoles } from "../../middleware/authorize.js";
+import { authorizeRoles, authorizeTask } from "../../middleware/authorize.js";
 import { validate } from "../../middleware/validate.js";
 import { idParams } from "../../utils/schema.js";
 import {
@@ -35,6 +35,7 @@ export function taskRoutes(db) {
   );
   r.post("/:id/hours", async (req, res, next) => {
     try {
+      await authorizeTask(db, req.user, req.params.id);
       const hours = Number(req.body.hours || 0);
       const task = await db.task.update({
         where: { id: req.params.id },

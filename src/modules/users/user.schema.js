@@ -14,7 +14,7 @@ export const userCreate = z
     employeeCode: z.string().trim().min(2).max(30).optional(),
     name: z.string().trim().min(2).max(100),
     email: z.email().trim().toLowerCase(),
-    password: password.optional(),
+    password: password.or(z.literal("")).optional().transform((v) => (v === "" ? undefined : v)),
     phone: z.string().max(30).nullable().optional(),
     role: roleName.default("EMPLOYEE"),
     managerId: uuid.nullable().optional().or(z.literal("")),

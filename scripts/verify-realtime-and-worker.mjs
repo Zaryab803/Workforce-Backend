@@ -3,8 +3,8 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { io as socketClient } from "socket.io-client";
 import Redis from "ioredis";
-import { ensureDbServer, stopDbServer } from "../src/config/db-server.js";
-import { ensureRedisServer, stopRedisServer } from "../src/config/redis-server.js";
+import { ensureDbServer } from "../src/config/db-server.js";
+import { ensureRedisServer } from "../src/config/redis-server.js";
 import { prisma } from "../src/config/prisma.js";
 import { createApp } from "../src/app.js";
 import { attachRealtime } from "../src/realtime/server.js";
@@ -202,13 +202,6 @@ async function run() {
     });
   });
 
-  const notificationPromise = new Promise((resolve) => {
-    managerSocket.once("notification:created", (data) => {
-      console.log(`[REALTIME EVENT] Manager received notification:created event:`, data.notificationId);
-      resolve(data);
-    });
-  });
-
   // 9. Employee creates a comment on the task via socket
   const clientReqId = randomUUID();
   const commentText = `Live update verification comment ${Date.now()}`;
@@ -231,7 +224,7 @@ async function run() {
   }
 
   // 10. Verify comment:created received in Manager browser
-  const receivedCommentEvent = await Promise.race([
+  await Promise.race([
     commentPromise,
     new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout waiting for comment:created event")), 5000)),
   ]);
