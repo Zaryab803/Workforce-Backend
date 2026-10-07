@@ -25,7 +25,18 @@ export function createOutboxDelivery(
     }
     const notification = await db.notification.findUnique({
       where: { id: event.payload.notificationId },
-      include: { user: { include: { role: true } } },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            isActive: true,
+            deletedAt: true,
+            role: { select: { name: true } },
+            ...(event.kind === "PUSH" ? { pushEnabled: true } : {}),
+          },
+        },
+      },
     });
     if (
       !notification ||
@@ -59,6 +70,8 @@ export function createOutboxDelivery(
     }
     if (event.kind === "EMAIL")
       return email(notification, notification.user, event.id);
+    if (event.kind === "PUSH" && !notification.user.pushEnabled)
+      return "preference-disabled";
     if (event.kind === "PUSH")
       return push(notification, notification.user, event.id);
     throw Object.assign(new Error("Unknown delivery type"), {

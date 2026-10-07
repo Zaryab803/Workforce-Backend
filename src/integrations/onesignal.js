@@ -1,14 +1,15 @@
 import { createHmac } from "node:crypto";
 import { env } from "../config/env.js";
 
-// Do not use publicly visible user IDs as unverified Web SDK aliases.
+// Opaque stable aliases reduce guessability; they are NOT Web identity verification.
+// Aliases returned to clients must never be treated as proof of application identity.
 export const pushExternalId = (userId, config = env) =>
   createHmac("sha256", config.ONESIGNAL_ID_SECRET)
     .update(`orbit-push:${userId}`)
     .digest("hex");
 
 export function createPushSender(config = env, request = fetch) {
-  return async (_notification, recipient, eventId) => {
+  return async (notification, recipient, eventId) => {
     if (!config.ONESIGNAL_ENABLED) return "disabled";
     const response = await request(
       "https://api.onesignal.com/notifications?c=push",
@@ -26,8 +27,18 @@ export function createPushSender(config = env, request = fetch) {
           },
           target_channel: "push",
           // Generic lock-screen content: confidential task/comment text stays behind API auth.
-          headings: { en: "Orbit Workforce" },
-          contents: { en: "You have a new workspace notification." },
+          headings: {
+            en:
+              notification.type === "LOGIN"
+                ? "Login successful"
+                : "Orbit Workforce",
+          },
+          contents: {
+            en:
+              notification.type === "LOGIN"
+                ? "You have signed in successfully."
+                : "You have a new workspace notification.",
+          },
           url: new URL("/notifications", config.FRONTEND_URL).href,
           idempotency_key: eventId,
         }),
@@ -51,7 +62,25 @@ export function createPushSender(config = env, request = fetch) {
     }
     const body = await response.json();
     // OneSignal can return HTTP 200 without creating a message.
-    if (!body.id) return "no-subscribers";
+    if (!body.id) {
+      const errors = body.errors;
+      const noSubscribers = Array.isArray(errors)
+        ? errors.length > 0 &&
+          errors.every((message) =>
+            /not subscribed|no subscribed|no eligible|not found/i.test(
+              String(message),
+            ),
+          )
+        : Array.isArray(errors?.invalid_aliases?.external_id);
+      if (noSubscribers) return "no-subscribers";
+      throw Object.assign(
+        new Error("OneSignal did not accept the notification"),
+        {
+          code: "ONESIGNAL_REJECTED",
+          permanent: true,
+        },
+      );
+    }
     return "accepted";
   };
 }

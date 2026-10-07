@@ -59,6 +59,7 @@ async function assignment(tx, user, projectId, assigneeId, projectName) {
 
   const assigneeUser = await tx.user.findFirst({
     where: { id: assigneeId, isActive: true, deletedAt: null },
+    select: { id: true },
   });
   assert(
     assigneeUser,
@@ -67,15 +68,19 @@ async function assignment(tx, user, projectId, assigneeId, projectName) {
     "Assign an active member of the workforce.",
   );
 
-  if (!member) {
-    const defaultTeam = await tx.team.findFirst();
-    if (defaultTeam) {
-      member = await tx.teamMember.create({
-        data: { teamId: defaultTeam.id, userId: assigneeId },
-      });
-    }
+  // Assignment must use existing membership; never silently enroll someone in a team.
+  if (!member && !project) {
+    const managed = await tx.team.findFirst({
+      where: { managerId: assigneeId },
+    });
+    assert(
+      managed,
+      400,
+      "INVALID_ASSIGNEE",
+      "The assignee needs an existing team membership.",
+    );
+    member = { teamId: managed.id };
   }
-
   // If project not found or not given, find or create one for member's team
   if (!project) {
     project = await tx.project.findFirst({
@@ -92,7 +97,16 @@ async function assignment(tx, user, projectId, assigneeId, projectName) {
     }
   }
 
-  await assertTeamScope(tx, user, project.teamId);
+  const assignedTeam = await assertTeamScope(tx, user, project.teamId);
+  const membership = await tx.teamMember.findFirst({
+    where: { userId: assigneeId, teamId: project.teamId },
+  });
+  assert(
+    membership || assignedTeam.managerId === assigneeId,
+    400,
+    "INVALID_ASSIGNEE",
+    "Assign a member or manager of the task's team.",
+  );
   return project;
 }
 
@@ -203,6 +217,8 @@ export function taskService(db) {
           task,
           "TASK_ASSIGNED",
           "A new task is waiting for you",
+          undefined,
+          user.id,
         );
         publishLiveEvent({
           kind: "TASK_CHANGED",
@@ -273,6 +289,8 @@ export function taskService(db) {
           task,
           "TASK_UPDATED",
           "Your task details changed",
+          undefined,
+          user.id,
         );
         publishLiveEvent({
           kind: "TASK_CHANGED",
@@ -324,12 +342,17 @@ export function taskService(db) {
           where: { id },
           include: taskInclude,
         });
-        await taskNotification(
-          tx,
-          task,
-          "TASK_STATUS_CHANGED",
-          "Task status updated",
-        );
+        const team = await tx.team.findUnique({ where: { id: task.teamId } });
+        for (const recipientId of new Set([task.assigneeId, team?.managerId])) {
+          await taskNotification(
+            tx,
+            { ...task, assigneeId: recipientId },
+            "TASK_STATUS_CHANGED",
+            "Task status updated",
+            undefined,
+            user.id,
+          );
+        }
         publishLiveEvent({
           kind: "TASK_CHANGED",
           taskId: task.id,

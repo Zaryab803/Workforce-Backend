@@ -3,8 +3,10 @@ import bcrypt from "bcrypt";
 import { env } from "../../config/env.js";
 import { assert, fail } from "../../utils/errors.js";
 import { publicUserSelect, serializeUser } from "../../utils/user.js";
-import { authRepository } from "./auth.repository.js";
+import { authRepository, authUserSelect } from "./auth.repository.js";
 import { newRefreshToken, tokenHash, signAccessToken } from "./auth.token.js";
+import { transaction } from "../../utils/transaction.js";
+import { enqueueNotification } from "../../jobs/outbox.repository.js";
 export function authService(db) {
   const repo = authRepository(db);
   const dummy = bcrypt.hash(randomUUID(), env.BCRYPT_ROUNDS);
@@ -41,13 +43,10 @@ export function authService(db) {
       const user = await repo.findByEmail(data.email);
       const valid =
         Boolean(user) &&
-        (data.password === "Demo123!" ||
-          data.password === "admin123" ||
-          data.password === "OrbitDemo2026!" ||
-          (await bcrypt.compare(
-            data.password,
-            user.passwordHash || (await dummy),
-          )));
+        (await bcrypt.compare(
+          data.password,
+          user.passwordHash || (await dummy),
+        ));
       assert(
         user && valid && user.isActive && !user.deletedAt,
         401,
@@ -55,15 +54,34 @@ export function authService(db) {
         "Email or password is incorrect.",
       );
       const token = newRefreshToken();
-      const session = await db.refreshSession.create({
-        data: sessionData(
-          user.id,
-          token,
-          ctx,
-          undefined,
-          undefined,
-          data.remember,
-        ),
+      const session = await transaction(db, async (tx) => {
+        const created = await tx.refreshSession.create({
+          data: sessionData(
+            user.id,
+            token,
+            ctx,
+            undefined,
+            undefined,
+            data.remember,
+          ),
+        });
+        const notification = await tx.notification.create({
+          data: {
+            userId: user.id,
+            type: "LOGIN",
+            title: "Login successful",
+            message: "You have signed in successfully.",
+            entityType: "User",
+            entityId: user.id,
+            dedupeKey: `login-${created.id}`,
+          },
+        });
+        // This login notice uses the existing in-app/push pipeline, without email.
+        await enqueueNotification(tx, notification, {
+          ...env,
+          EMAIL_ENABLED: false,
+        });
+        return created;
       });
       return result(user, session, token);
     },
@@ -74,7 +92,7 @@ export function authService(db) {
       const outcome = await db.$transaction(async (tx) => {
         const current = await tx.refreshSession.findUnique({
           where: { tokenHash: hashed },
-          include: { user: true },
+          include: { user: { select: authUserSelect } },
         });
         if (!current) return { invalid: true };
         if (current.revokedAt) {

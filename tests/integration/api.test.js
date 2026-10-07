@@ -1,3 +1,8 @@
+import { env } from "../../src/config/env.js";
+import {
+  createPushSender,
+  pushExternalId,
+} from "../../src/integrations/onesignal.js";
 import { startWorkers } from "../../src/workers/start-workers.js";
 import { createServer } from "node:http";
 import { io as socketClient } from "socket.io-client";
@@ -7,7 +12,14 @@ import {
   processOutbox,
 } from "../../src/jobs/outbox.processor.js";
 import { enqueueNotification } from "../../src/jobs/outbox.repository.js";
-import { beforeAll, afterAll, test, expect, describe } from "@jest/globals";
+import {
+  beforeAll,
+  afterAll,
+  test,
+  expect,
+  describe,
+  jest,
+} from "@jest/globals";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 import request from "supertest";
@@ -142,6 +154,57 @@ afterAll(async () => {
   await redis.quit();
 });
 describe("authentication and request security", () => {
+  test("successful login records one self notification and targeted push; failure and refresh do not", async () => {
+    const previousPush = env.ONESIGNAL_ENABLED;
+    const previousEmail = env.EMAIL_ENABLED;
+    const where = { userId: otherEmployee.id, type: "LOGIN" };
+    const before = await db.notification.count({ where });
+    try {
+      env.ONESIGNAL_ENABLED = true;
+      env.EMAIL_ENABLED = true;
+      const signedIn = await login(otherEmployee.email);
+      expect(await db.notification.count({ where })).toBe(before + 1);
+      const notice = await db.notification.findFirst({
+        where,
+        orderBy: { createdAt: "desc" },
+      });
+      expect(notice).toMatchObject({
+        userId: otherEmployee.id,
+        title: "Login successful",
+        message: "You have signed in successfully.",
+        entityType: "User",
+        entityId: otherEmployee.id,
+        isRead: false,
+      });
+      const events = await db.outboxEvent.findMany({
+        where: { payload: { path: ["notificationId"], equals: notice.id } },
+      });
+      expect(events.map((event) => event.kind).sort()).toEqual([
+        "NOTIFICATION_LIVE",
+        "PUSH",
+      ]);
+      const list = await request(app)
+        .get("/api/v1/notifications")
+        .set(auth(signedIn.token));
+      expect(list.body.data.find((item) => item.id === notice.id).taskId).toBe(
+        "",
+      );
+      const failed = await request(app)
+        .post("/api/v1/auth/login")
+        .set("X-CSRF-Protection", "1")
+        .send({ email: otherEmployee.email, password: "wrong-password" });
+      expect(failed.status).toBe(401);
+      const refreshed = await request(app)
+        .post("/api/v1/auth/refresh")
+        .set("X-CSRF-Protection", "1")
+        .set("Cookie", signedIn.cookie);
+      expect(refreshed.status).toBe(200);
+      expect(await db.notification.count({ where })).toBe(before + 1);
+    } finally {
+      env.ONESIGNAL_ENABLED = previousPush;
+      env.EMAIL_ENABLED = previousEmail;
+    }
+  });
   test("password hashes are never returned", async () => {
     const res = await request(app).get("/api/v1/users").set(auth(a.token));
     expect(res.status).toBe(200);
@@ -159,6 +222,17 @@ describe("authentication and request security", () => {
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe("INVALID_CREDENTIALS");
   });
+  test.each(["Demo123!", "admin123", "OrbitDemo2026!"])(
+    "demo password %s cannot bypass the account password hash",
+    async (candidate) => {
+      const res = await request(app)
+        .post("/api/v1/auth/login")
+        .set("X-CSRF-Protection", "1")
+        .send({ email: employee.email, password: candidate });
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe("INVALID_CREDENTIALS");
+    },
+  );
   test("blocks missing CSRF header and disallowed origins", async () => {
     expect(
       (
@@ -884,6 +958,10 @@ describe("durable delivery and real-time comments", () => {
     }
   });
   test("enabled providers enqueue independent email, push and live work atomically", async () => {
+    await db.user.update({
+      where: { id: employee.id },
+      data: { pushEnabled: true },
+    });
     const note = await db.notification.findFirst({
       where: { userId: employee.id },
     });
@@ -956,5 +1034,167 @@ describe("durable delivery and real-time comments", () => {
     } finally {
       await runtime.close();
     }
+  });
+});
+
+describe("OneSignal task delivery", () => {
+  test("manager assignment commits in-app and targeted push, and retries reuse the durable event ID", async () => {
+    const previous = env.ONESIGNAL_ENABLED;
+    const config = {
+      ONESIGNAL_ENABLED: true,
+      ONESIGNAL_APP_ID: randomUUID(),
+      ONESIGNAL_REST_API_KEY: "mock-test-only",
+      ONESIGNAL_ID_SECRET: "mock-alias-secret-more-than-thirty-two-characters",
+      FRONTEND_URL: "https://workforce-frontend.vercel.app",
+    };
+    await db.user.update({
+      where: { id: employee.id },
+      data: { pushEnabled: true },
+    });
+    let assigned;
+    try {
+      env.ONESIGNAL_ENABLED = true;
+      assigned = await createTask("Private assigned task");
+    } finally {
+      env.ONESIGNAL_ENABLED = previous;
+    }
+    const notice = await db.notification.findFirst({
+      where: { entityId: assigned.id, type: "TASK_ASSIGNED" },
+    });
+    expect(notice.userId).toBe(employee.id);
+    expect(
+      await db.notification.count({ where: { entityId: assigned.id } }),
+    ).toBe(1);
+    const event = await db.outboxEvent.findUnique({
+      where: { key: `push-${notice.id}` },
+    });
+    expect(event).not.toBeNull();
+    const live = await db.outboxEvent.findUnique({
+      where: { key: `live-${notice.id}` },
+    });
+    const publish = jest.fn(async () => 1);
+    const sent = [];
+    let failed = false;
+    const provider = async (_url, options) => {
+      const body = JSON.parse(options.body);
+      sent.push(body);
+      if (body.idempotency_key === event.id && !failed) {
+        failed = true;
+        return { ok: false, status: 503, headers: { get: () => null } };
+      }
+      return { ok: true, json: async () => ({ id: randomUUID() }) };
+    };
+    const deliver = createOutboxDelivery(
+      db,
+      { publish },
+      { push: createPushSender(config, provider) },
+    );
+    expect(await deliver(live)).toBe("published");
+    expect(JSON.parse(publish.mock.calls[0][1]).userId).toBe(employee.id);
+    await processOutbox(db, deliver, { kinds: ["PUSH"], limit: 1000 });
+    const retry = await db.outboxEvent.findUnique({ where: { id: event.id } });
+    expect(retry).toMatchObject({
+      processedAt: null,
+      failedAt: null,
+      attempts: 1,
+      lastError: "ONESIGNAL_HTTP_503",
+    });
+    expect(
+      await db.notification.findUnique({ where: { id: notice.id } }),
+    ).not.toBeNull();
+    await processOutbox(db, deliver, {
+      kinds: ["PUSH"],
+      limit: 1000,
+      now: new Date(Date.now() + 2000000),
+    });
+    const accepted = await db.outboxEvent.findUnique({
+      where: { id: event.id },
+    });
+    expect(accepted).toMatchObject({
+      result: "accepted",
+      attempts: 2,
+      failedAt: null,
+    });
+    const attempts = sent.filter((body) => body.idempotency_key === event.id);
+    expect(attempts).toHaveLength(2);
+    for (const body of attempts) {
+      expect(body.include_aliases).toEqual({
+        external_id: [pushExternalId(employee.id, config)],
+      });
+      expect(body.target_channel).toBe("push");
+      expect(body.url).toBe(
+        "https://workforce-frontend.vercel.app/notifications",
+      );
+      expect(body.included_segments).toBeUndefined();
+      expect(JSON.stringify(body)).not.toContain(assigned.title);
+    }
+  });
+  test("preferences affect only the authenticated account and are checked at delivery", async () => {
+    expect(
+      (
+        await request(app)
+          .patch("/api/v1/notifications/push-preference")
+          .send({ enabled: true })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await request(app)
+          .patch("/api/v1/notifications/push-preference")
+          .set(auth(e.token))
+          .send({ enabled: "true" })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await request(app)
+          .patch("/api/v1/notifications/push-preference")
+          .set(auth(e.token))
+          .send({ enabled: false })
+      ).status,
+    ).toBe(200);
+    expect(
+      (await db.user.findUnique({ where: { id: employee.id } })).pushEnabled,
+    ).toBe(false);
+    const note = await db.notification.findFirst({
+      where: { userId: employee.id },
+    });
+    const push = jest.fn();
+    const deliver = createOutboxDelivery(db, redis, { push });
+    expect(
+      await deliver({
+        id: randomUUID(),
+        kind: "PUSH",
+        payload: { notificationId: note.id },
+      }),
+    ).toBe("preference-disabled");
+    expect(push).not.toHaveBeenCalled();
+  });
+  test("self assignment excludes the actor; employee status notifies the task manager", async () => {
+    const self = await request(app)
+      .post("/api/v1/tasks")
+      .set(auth(m.token))
+      .send({
+        title: "Manager own task",
+        projectId: project.id,
+        assigneeId: manager.id,
+        priority: "HIGH",
+        dueDate: "2026-01-01",
+        estimatedHours: 1,
+      });
+    expect(self.status).toBe(201);
+    expect(
+      await db.notification.count({ where: { entityId: self.body.data.id } }),
+    ).toBe(0);
+    const assigned = await createTask("Status recipient test");
+    const changed = await request(app)
+      .patch(`/api/v1/tasks/${assigned.id}/status`)
+      .set(auth(e.token))
+      .send({ status: "IN_PROGRESS", version: 1 });
+    expect(changed.status).toBe(200);
+    const notices = await db.notification.findMany({
+      where: { entityId: assigned.id, type: "TASK_STATUS_CHANGED" },
+    });
+    expect(notices.map((row) => row.userId)).toEqual([manager.id]);
   });
 });

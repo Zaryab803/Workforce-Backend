@@ -166,6 +166,22 @@ export async function attachRealtime(httpServer, { db, redis = null }) {
       const event = typeof message === "string" ? JSON.parse(message) : message;
       for (const socket of io.sockets.sockets.values()) {
         if (!socket.data?.user) continue;
+        let user;
+        try {
+          user = await currentSocketUser(db, socket);
+        } catch {
+          socket.disconnect(true);
+          continue;
+        }
+        if (["COMMENT_LIVE", "TASK_CHANGED"].includes(event.kind)) {
+          try {
+            await authorizeTask(db, user, event.taskId);
+          } catch (error) {
+            if (![403, 404].includes(error.status)) throw error;
+            socket.data.tasks?.delete(event.taskId);
+            continue;
+          }
+        }
 
         if (
           event.kind === "NOTIFICATION_LIVE" &&
@@ -215,7 +231,10 @@ export async function attachRealtime(httpServer, { db, redis = null }) {
       });
       await subscriber.subscribe(liveChannel);
     } catch (err) {
-      logger.warn({ err: err.message }, "Redis pubsub unavailable, falling back to local bus");
+      logger.warn(
+        { err: err.message },
+        "Redis pubsub unavailable, falling back to local bus",
+      );
       subscriber = null;
     }
   }

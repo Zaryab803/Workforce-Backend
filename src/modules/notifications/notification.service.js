@@ -7,7 +7,7 @@ const serializeNotification = (n) => ({
   message: n.message,
   read: n.isRead,
   isRead: n.isRead,
-  taskId: n.entityId || "",
+  taskId: n.entityType === "Task" ? n.entityId || "" : "",
   entityId: n.entityId || "",
   createdAt: n.createdAt ? new Date(n.createdAt).toISOString() : "",
 });

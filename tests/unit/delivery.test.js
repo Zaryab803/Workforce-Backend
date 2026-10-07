@@ -82,6 +82,30 @@ test("OneSignal 200 without a message ID is not recorded as accepted", async () 
   }));
   expect(await send(note, user, randomUUID())).toBe("no-subscribers");
 });
+
+test("login push uses the requested success message and only the authenticated recipient alias", async () => {
+  const request = jest.fn(async () => ({
+    ok: true,
+    json: async () => ({ id: randomUUID() }),
+  }));
+  await createPushSender(config, request)(
+    {
+      type: "LOGIN",
+      title: "Private title",
+      message: "Private account details",
+    },
+    user,
+    randomUUID(),
+  );
+  const body = JSON.parse(request.mock.calls[0][1].body);
+  expect(body.headings.en).toBe("Login successful");
+  expect(body.contents.en).toBe("You have signed in successfully.");
+  expect(body.include_aliases.external_id).toEqual([
+    pushExternalId(user.id, config),
+  ]);
+  expect(body).not.toHaveProperty("included_segments");
+  expect(request.mock.calls[0][1].body).not.toContain("Private");
+});
 test("provider rate limits preserve Retry-After; wrong keys fail permanently", async () => {
   const response = (status) => ({
     ok: false,
@@ -124,4 +148,35 @@ test("disabled providers make no network calls", async () => {
       randomUUID(),
     ),
   ).toBe("disabled");
+});
+
+test("unrecognized provider rejection is explicit and never recorded as missing subscribers", async () => {
+  const send = createPushSender(config, async () => ({
+    ok: true,
+    json: async () => ({ errors: ["Invalid app configuration"] }),
+  }));
+  await expect(send(note, user, randomUUID())).rejects.toMatchObject({
+    code: "ONESIGNAL_REJECTED",
+    permanent: true,
+  });
+});
+test("missing external aliases produce an explicit no-subscribers outcome", async () => {
+  const send = createPushSender(config, async () => ({
+    ok: true,
+    json: async () => ({
+      errors: {
+        invalid_aliases: { external_id: [pushExternalId(user.id, config)] },
+      },
+    }),
+  }));
+  expect(await send(note, user, randomUUID())).toBe("no-subscribers");
+});
+test("network timeouts are retriable and an abort signal is configured", async () => {
+  const send = createPushSender(config, async (_url, options) => {
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    throw new DOMException("Timed out", "TimeoutError");
+  });
+  await expect(send(note, user, randomUUID())).rejects.toMatchObject({
+    name: "TimeoutError",
+  });
 });

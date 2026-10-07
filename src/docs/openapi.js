@@ -469,11 +469,28 @@ add(
   "Get the current user's OneSignal configuration",
   {
     data: object(
-      { enabled: { type: "boolean" }, appId: uuid, externalId: string },
+      {
+        enabled: { type: "boolean" },
+        appId: uuid,
+        externalId: string,
+        preference: { type: "boolean" },
+      },
       ["enabled"],
     ),
     description:
       "Requires a Bearer token. Returns only this user's opaque push alias and public App ID; never the App API key. Disabled channels return enabled=false.",
+  },
+);
+add(
+  "/notifications/push-preference",
+  "patch",
+  "Notifications",
+  "Set this user's push preference",
+  {
+    body: object({ enabled: { type: "boolean" } }),
+    data: object({ enabled: { type: "boolean" } }),
+    description:
+      "Authenticated account-wide push preference. Delivery workers check it again before sending. Browser permission is separate.",
   },
 );
 add("/auth/login", "post", "Auth", "Sign in and create a refresh session", {

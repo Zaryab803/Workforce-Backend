@@ -4,8 +4,7 @@ export async function authenticateToken(db, token) {
   let claims;
   try {
     claims = verifyAccessToken(token);
-  } catch (err) {
-    console.error("DEBUG authenticateToken error:", err?.message || err);
+  } catch {
     fail(
       401,
       "TOKEN_EXPIRED_OR_INVALID",
@@ -20,7 +19,13 @@ export async function authenticateToken(db, token) {
   );
   const user = await db.user.findUnique({
     where: { id: claims.sub },
-    include: { role: true },
+    select: {
+      id: true,
+      isActive: true,
+      deletedAt: true,
+      tokenVersion: true,
+      role: { select: { name: true } },
+    },
   });
   const session = await db.refreshSession.findUnique({
     where: { id: claims.sid },

@@ -69,6 +69,7 @@ model User {
   avatarUrl        String?             @map("avatar_url")
   isActive         Boolean             @default(true) @map("is_active")
   tokenVersion     Int                 @default(1) @map("token_version")
+  pushEnabled      Boolean             @default(false) @map("push_enabled")
   createdAt        DateTime            @default(now()) @map("created_at")
   updatedAt        DateTime            @updatedAt @map("updated_at")
   deletedAt        DateTime?           @map("deleted_at")
